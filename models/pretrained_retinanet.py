@@ -148,7 +148,7 @@ class PretrainedRetinaNet(nn.Module):
             "boxes": filtered_boxes,
             "labels": filtered_labels,
             "scores": filtered_scores,
-            "counts": counts
+            "prediction": counts
         })
  
 def pretrained_evaluation():
@@ -161,7 +161,6 @@ def pretrained_evaluation():
 
     model.eval()
 
-    se_scores,ae_scores, em_scores = [],[],[]
     results = []
 
     for image_ids, images, counts in tqdm(val_dataloader, desc="Evaluating model", unit="sample"):
@@ -170,14 +169,8 @@ def pretrained_evaluation():
         counts = counts.to(DEVICE) 
 
         detection = model(image_ids, images, target_classes)
-        detection["actual_counts"] = counts.cpu().tolist()  # Move to CPU
-        detection["square_error"] = (np.array(detection["actual_counts"]) - np.array(detection["counts"]))**2
-        detection["absolute_error"] = abs(np.array(detection["actual_counts"]) - np.array(detection["counts"]))
-        detection["exact_match"] = np.where(detection["square_error"] == 0, 1, 0)
-
-        ae_scores.append(detection["absolute_error"])
-        se_scores.append(detection["square_error"])
-        em_scores.append(detection["exact_match"])
+        detection["ground_truths"] = counts.cpu().tolist()  # Move to CPU
+        
 
         # Move all detection dictionary tensors to CPU before storing
         # Convert tensors and NumPy arrays to lists before storing in results
@@ -194,12 +187,6 @@ def pretrained_evaluation():
         # Free GPU memory manually
         del image_ids, images, counts, detection
         torch.cuda.empty_cache()  # Clears unused memory
-
-    # Compute Metric Scores
-    print("Evaluation Results")
-    print("Mean Square Error:", np.mean(np.array(se_scores), axis=0))
-    print("Mean absolute Error:", np.mean(np.array(ae_scores), axis=0))
-    print("Exact Match Ratio:", np.mean(np.array(em_scores), axis=0))
 
     # Save results to JSON file
     with open(f'{ROOT_DIR}/results/pretrained_retinanet_results.json', "w") as f:

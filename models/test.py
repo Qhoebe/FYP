@@ -2,9 +2,9 @@ import numpy as np
 import os
 
 ROOT_DIR = os.path.abspath(os.curdir)
-dir = f'{ROOT_DIR}/data'
+print('root dir:', ROOT_DIR)
 
-items = os.listdir(dir)
-
-print(items)
+with open("output.txt", "w") as f:
+    f.write("This is my output.")
+    f.write(ROOT_DIR)
 

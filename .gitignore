@@ -1,3 +1,4 @@
 /data
-/model-weights
+/model_weights
 /results
+/jobscript
