@@ -174,20 +174,19 @@ model = ViTObjectCounter().to(DEVICE)
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
-
-# Load checkpoint
-checkpoint = torch.load('vit_checkpoint_6.pth')
-model.load_state_dict(checkpoint['model_state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
-
 # Train the model
-train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch, epochs=4)
+train(model, train_dataloader, optimizer, loss_fn, DEVICE, epochs=5)
+
+# # Load checkpoint
+# checkpoint = torch.load('vit_checkpoint_5.pth')
+# model.load_state_dict(checkpoint['model_state_dict'])
+# optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+# cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 
 
-# results = evaluate(model, val_dataloader, DEVICE)
+results = evaluate(model, val_dataloader, DEVICE)
 
-# # Save results to JSON file
-# with open(f'{ROOT_DIR}/results/ViT_results.json', "w") as f:
-#     json.dump(results, f, indent=4)
+# Save results to JSON file
+with open(f'{ROOT_DIR}/results/ViT_results.json', "w") as f:
+    json.dump(results, f, indent=4)
 

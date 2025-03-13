@@ -17,18 +17,34 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class COCODataset(Dataset):
-    def __init__(self, img_dir, annotation_file, target_classes, transform=None):
+    def __init__(self, img_dir, annotation_file, target_classes, transform=None, filter_empty=True):
         """
         Args:
-            root_dir (str): Path to the directory containing images.
+            img_dir (str): Path to the directory containing images.
             annotation_file (str): Path to the COCO annotation file (JSON format).
+            target_classes (list): List of target category IDs to be used for training.
             transform (callable, optional): Optional transform to be applied to images.
+            filter_empty (bool): Whether to filter out images that do not contain target classes.
         """
         self.img_dir = img_dir
         self.coco = COCO(annotation_file)
-        self.image_ids = list(self.coco.imgs.keys())  # Get all image IDs
-        self.transform = transform
         self.target_classes = target_classes
+        self.transform = transform
+
+        # Load all image IDs
+        all_image_ids = list(self.coco.imgs.keys())
+
+        if filter_empty:
+            # **Filter images that contain at least one target class**
+            self.image_ids = [
+                image_id for image_id in all_image_ids
+                if any(ann['category_id'] in self.target_classes for ann in self.coco.loadAnns(self.coco.getAnnIds(imgIds=image_id)))
+            ]
+            print(f"Filtered dataset: {len(self.image_ids)} images contain target classes.")
+        else:
+            # Use all images (for evaluation)
+            self.image_ids = all_image_ids
+            print(f"Validation dataset: {len(self.image_ids)} images (including empty ones).")
 
     def __len__(self):
         return len(self.image_ids)
@@ -43,20 +59,22 @@ class COCODataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        # Load captions
+        # Load annotations
         annotation_ids = self.coco.getAnnIds(imgIds=image_id)
         annotations = self.coco.loadAnns(annotation_ids)
 
+        # Create a vector for object count
         category_counts = np.zeros(len(self.target_classes), dtype=np.float32)
 
         for ann in annotations:
-            if ann['category_id'] in self.target_classes: 
+            if ann['category_id'] in self.target_classes:
                 category_counts[self.target_classes.index(ann['category_id'])] += 1
         
         # Convert to tensor
-        category_counts = torch.tensor(category_counts, dtype=torch.float32) 
+        category_counts = torch.tensor(category_counts, dtype=torch.float32)
 
-        return torch.tensor(image_id) , image, category_counts
+        return torch.tensor(image_id), image, category_counts
+
 
 def get_COCO_dataset(target_classes): 
     # trasformer
@@ -72,7 +90,8 @@ def get_COCO_dataset(target_classes):
         f'{ROOT_DIR}/data/COCO/images/train2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_train2017.json',
         target_classes,
-        transform
+        transform,
+        filter_empty=True 
     )
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
@@ -82,7 +101,8 @@ def get_COCO_dataset(target_classes):
         f'{ROOT_DIR}/data/COCO/images/val2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_val2017.json',
         target_classes,
-        transform
+        transform,
+        filter_empty=False 
     )
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=False)
 
@@ -132,7 +152,7 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': avg_loss,
-        }, f"vit_checkpoint_{cur_epoch+epoch+1}.pth")
+        }, f"vit_targeted_checkpoint_{cur_epoch+epoch+1}.pth")
         print(f"Checkpoint {cur_epoch+epoch+1} saved!")
 
 
@@ -174,20 +194,23 @@ model = ViTObjectCounter().to(DEVICE)
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
+# # Load checkpoint
+# checkpoint = torch.load('vit_targeted_checkpoint_10.pth')
+# model.load_state_dict(checkpoint['model_state_dict'])
+# optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+# cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 
-# Load checkpoint
-checkpoint = torch.load('vit_checkpoint_5.pth')
-model.load_state_dict(checkpoint['model_state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
+# Train the model
+train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=0, epochs=10)
 
-# # Train the model
-# train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=0, epochs=2)
-
+# Evaluate Model
 
 results = evaluate(model, val_dataloader, DEVICE)
 
 # Save results to JSON file
-with open(f'{ROOT_DIR}/results/ViT_checkpoint_5_results.json', "w") as f:
+with open(f'{ROOT_DIR}/results/ViT_targeted_results.json', "w") as f:
     json.dump(results, f, indent=4)
+    
+
+
 
