@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLOv8 Person Detection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        function updatePersonCount() {
+            fetch('/person_count')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('person-count').innerText = "People Count: " + data.count;
+                })
+                .catch(error => console.error('Error fetching count:', error));
+        }
+
+        // Refresh count every 500ms
+        setInterval(updatePersonCount, 500);
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <h1 class="header">Live Video Feed</h1>
+        <div class="main-container">
+            <div class="left-section">
+                <img src="{{ url_for('video_feed') }}" width="800">
+            </div>
+            <div class="right-section">
+                <div>
+                    <h2 id="person-count">People Count: 0</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100vw;
+    height: 100vh;
+    padding: 20px;
+}
+
+.header {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: 10px;
+}
+
+.main-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: calc(100vh - 80px); /* Adjusted height for full-screen containment */
+    justify-content: space-between;
+}
+
+.left-section{
+    width: 70%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    overflow: hidden; /* Ensures content does not overflow */
+}
+
+.right-section {
+    width: 30%;
+    display: flex;
+    flex-direction: column;
+    align-items: left;
+    justify-content: center;
+    height: 100%;
+    overflow: hidden; /* Ensures content does not overflow */
+}
