@@ -13,27 +13,29 @@ const App = () => {
     const intervalRef = useRef(null);
 
     const sendToModel = async () => {
-      if (!cameraRef.current) return;
-      const imageData = cameraRef.current.captureFrame(); // Base64 image string
-      if (!imageData) return;
-  
-      try {
-          const response = await axios.post(
-              `${API_URL}/evaluate/model_1`,
-              { image: imageData },  // Send Base64 image
-              { headers: { "Content-Type": "application/json" } }
-          );
-          setCount(response.data.count);
-      } catch (error) {
-          console.error("Error sending image to model:", error);
-      }
+        if (!cameraRef.current) return;
+        const imageData = cameraRef.current.captureFrame(); // Base64 image string
+        if (!imageData) return;
+    
+        try {
+            const response = await axios.post(
+                `${API_URL}/evaluate/model_2`,
+                { image: imageData },  // Send Base64 image
+                { headers: { "Content-Type": "application/json" } }
+            );
+            if (isRunning) {
+                setCount(response.data.count);
+            }
+        } catch (error) {
+            console.error("Error sending image to model:", error);
+        }
   };
   
 
     const startEvaluation = () => {
         if (isRunning) return;
         setIsRunning(true);
-        intervalRef.current = setInterval(sendToModel, 2000);
+        intervalRef.current = setInterval(sendToModel, 1000);
     };
 
     const stopEvaluation = () => {
