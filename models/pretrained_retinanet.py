@@ -6,7 +6,6 @@ import torch.nn as nn
 from pycocotools.coco import COCO
 from torch.utils.data import Dataset, DataLoader
 from torchvision import models, transforms
-from tqdm import tqdm
 from PIL import Image
 
 # project root dir
@@ -73,28 +72,18 @@ class COCODataset(Dataset):
     
 
 # dataset information 
-def get_COCO_dataset(target_classes): 
+def get_COCO_dataset(target_classes, is_blurred): 
     # trasformer
-    transform = transforms.Compose([
+    if is_blurred: 
+        transform = transforms.Compose([
+            transforms.GaussianBlur(kernel_size=(15, 15), sigma=(0.1, 2.0)),
+            transforms.ToTensor(),
+        ])
+    else: 
+        transform = transforms.Compose([
             transforms.ToTensor(),
         ])
     
-    # def collate_fn(batch):
-    #     image_ids = [item[0] for item in batch]  # Stack image IDs into a tensor
-    #     images = [item[1] for item in batch]  # Stack image tensors
-    #     counts = [item[2] for item in batch]  # Stack count tensors
-    #     return image_ids, images, counts
-    
-    # load train data
-    print("Loading Training Data...")
-    train_dataset = COCODataset(
-        f'{ROOT_DIR}/data/COCO/images/train2017',
-        f'{ROOT_DIR}/data/COCO/annotations/instances_train2017.json',
-        target_classes,
-        transform
-    )
-    train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-
     # load val data
     print("Loading Validation Data...")
     val_dataset = COCODataset(
@@ -106,12 +95,10 @@ def get_COCO_dataset(target_classes):
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False)
 
     # sanity check
-    print("train_dataset size:", len(train_dataset))
-    print("train_loader size:", len(train_dataloader))
     print("val_dataset size:", len(val_dataset))
     print("val_loader size:", len(val_dataloader))
 
-    return train_dataset,train_dataloader,val_dataset,val_dataloader
+    return val_dataset,val_dataloader
     
 class PretrainedRetinaNet(nn.Module):
     def __init__(self, threshold=0.5): 
@@ -150,11 +137,11 @@ class PretrainedRetinaNet(nn.Module):
             "scores": filtered_scores,
             "prediction": counts
         })
- 
-def pretrained_evaluation():
+
+def pretrained_evaluation(is_blurred = False):
     # Run Evaluation on COCO Validation Data 
     target_classes = [1]
-    train_dataset,train_dataloader,val_dataset,val_dataloader = get_COCO_dataset(target_classes)
+    val_dataset,val_dataloader = get_COCO_dataset(target_classes, is_blurred)
 
     print("Running RetinaNet model...")
     model = PretrainedRetinaNet(threshold=0.5).to(DEVICE)
@@ -163,7 +150,7 @@ def pretrained_evaluation():
 
     results = []
 
-    for image_ids, images, counts in tqdm(val_dataloader, desc="Evaluating model", unit="sample"):
+    for image_ids, images, counts in val_dataloader:
         image_ids = image_ids.to(DEVICE) 
         images = images.to(DEVICE) 
         counts = counts.to(DEVICE) 
@@ -189,8 +176,12 @@ def pretrained_evaluation():
         torch.cuda.empty_cache()  # Clears unused memory
 
     # Save results to JSON file
-    with open(f'{ROOT_DIR}/results/pretrained_retinanet_results.json', "w") as f:
-        json.dump(results, f, indent=4)
+    if is_blurred: 
+        with open(f'{ROOT_DIR}/results/pretrained_retinanet_results_on_blurred_images.json', "w") as f:
+            json.dump(results, f, indent=4)
+    else: 
+        with open(f'{ROOT_DIR}/results/pretrained_retinanet_results.json', "w") as f:
+            json.dump(results, f, indent=4)
 
     
 
