@@ -5,26 +5,24 @@ import numpy as np
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def initiate_model():
-    
-    model = PretrainedFasterRCNN(threshold=0.8).to(DEVICE)
-    return model
+class Model(): 
+    def __init__(self):
+        self.model = PretrainedFasterRCNN(threshold=0.8).to(DEVICE)
 
-def preprocess_image(img):
+    def preprocess_image(self,img):
+        transform = transforms.Compose([
+            # transforms.ToPILImage(),
+            transforms.ToTensor()
+        ])
+        img_tensor = transform(img)
+        return img_tensor.unsqueeze(0)  # Add batch dimension [1, C, H, W]
 
-    transform = transforms.Compose([
-        # transforms.ToPILImage(),
-        transforms.ToTensor()
-    ])
-    img_tensor = transform(img)
-    return img_tensor.unsqueeze(0)  # Add batch dimension [1, C, H, W]
-
-def count_objects(model, img):
-    img_tensor = preprocess_image(img).to(DEVICE)
-    model.eval()
-    with torch.no_grad():
-        output = model(img_tensor, [1])
-    return int(output.item())  # Assuming model outputs a count
+    def count_objects(self, img):
+        img_tensor = self.preprocess_image(img).to(DEVICE)
+        self.model.eval()
+        with torch.no_grad():
+            output = self.model(img_tensor, [1])
+        return int(output.item())  # Assuming model outputs a count
 
 class PretrainedFasterRCNN(nn.Module):
     def __init__(self, threshold=0.5): 

@@ -1,0 +1,5 @@
+.same-line {
+    display: flex;
+    align-items: center; /* Aligns text vertically */
+    gap: 10px; /* Adds spacing between elements */
+  }

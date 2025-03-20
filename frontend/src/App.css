@@ -33,7 +33,7 @@ html, body {
 }
 
 .left-section{
-  width: 50%;
+  width: 60%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -43,12 +43,12 @@ html, body {
 }
 
 .right-section {
-  width: 50%;
+  width: 40%;
   display: flex;
   flex-direction: column;
   align-items: left;
-  justify-content: center;
-  height: 100%;
+  justify-content: space-evenly;
+  height: 80%;
   overflow: hidden; /* Ensures content does not overflow */
 }
 
@@ -57,4 +57,10 @@ html, body {
   padding: 10px 20px;
   font-size: 1.2rem;
   cursor: pointer;
+}
+
+.same-line {
+  display: flex;
+  align-items: center; /* Aligns text vertically */
+  gap: 10px; /* Adds spacing between elements */
 }
