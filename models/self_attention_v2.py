@@ -28,10 +28,24 @@ class COCODataset(Dataset):
     def __init__(self, img_dir, annotation_file, target_classes, transform=None, mode ="train"):
         self.img_dir = img_dir
         self.coco = COCO(annotation_file)
-        self.image_ids = list(self.coco.imgs.keys())  
+        # self.image_ids = list(self.coco.imgs.keys())  
         self.transform = transform
         self.target_classes = target_classes
         self.mode = mode  # "train" or "test"
+
+        # Load all image IDs
+        all_image_ids = list(self.coco.imgs.keys())
+
+        if self.mode == "train":
+            # **Filter images that contain at least one target class**
+            self.image_ids = [
+                image_id for image_id in all_image_ids
+                if any(ann['category_id'] in self.target_classes for ann in self.coco.loadAnns(self.coco.getAnnIds(imgIds=image_id)))
+            ]
+            print(f"Filtered dataset: {len(self.image_ids)} images contain target classes.")
+        else:
+            # Use all images (for evaluation)
+            self.image_ids = all_image_ids
 
     def __len__(self):
         return len(self.image_ids)
@@ -89,7 +103,8 @@ def get_COCO_dataset(target_classes, is_train_blurred=False):
         f'{ROOT_DIR}/data/COCO/images/train2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_train2017.json',
         target_classes,
-        transform_train
+        transform_train,
+        "train"
     )
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
@@ -99,7 +114,8 @@ def get_COCO_dataset(target_classes, is_train_blurred=False):
         f'{ROOT_DIR}/data/COCO/images/val2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_val2017.json',
         target_classes,
-        transform
+        transform,
+        "test"
     )
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=False)
 
@@ -107,7 +123,8 @@ def get_COCO_dataset(target_classes, is_train_blurred=False):
         f'{ROOT_DIR}/data/COCO/images/val2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_val2017.json',
         target_classes,
-        transform_blur
+        transform_blur, 
+        "test"
     )
     val_dataloader_blur = DataLoader(val_dataset_blur, batch_size=16, shuffle=False)
 
@@ -210,7 +227,7 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, 
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
-            }, f"self_attention_image_blur_checkpoint_{cur_epoch+epoch+1}.pth")
+            }, f"self_attention_v2_image_blur_checkpoint_{cur_epoch+epoch+1}.pth")
             print(f"Checkpoint {cur_epoch+epoch+1} saved!")
         else: 
             torch.save({
@@ -218,7 +235,7 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, 
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
-            }, f"self_attention_checkpoint_{cur_epoch+epoch+1}.pth")
+            }, f"self_attention_v2_checkpoint_{cur_epoch+epoch+1}.pth")
             print(f"Checkpoint {cur_epoch+epoch+1} saved!")
 
 def evaluate(model, dataloader, device):
@@ -250,7 +267,7 @@ def evaluate(model, dataloader, device):
     return results
 
 def save_results(results, is_train_blur=False, is_test_blur = False, epoch = None): 
-    file_name = "self_attention" 
+    file_name = "self_attention_v2" 
     if is_train_blur: file_name += "_image_blur"
     if epoch: file_name += f"_{epoch}"
     file_name += "_results"
@@ -275,7 +292,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 
 # # Load Checkpoint
-# checkpoint = torch.load(f'self_attention_checkpoint_8.pth')
+# checkpoint = torch.load(f'self_attention_v2_checkpoint_8.pth')
 # model.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch

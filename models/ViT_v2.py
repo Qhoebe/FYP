@@ -8,7 +8,6 @@ import os
 import json
 from PIL import Image
 import numpy as np
-from tqdm import tqdm
 import time
 
 # project root dir
@@ -17,34 +16,18 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class COCODataset(Dataset):
-    def __init__(self, img_dir, annotation_file, target_classes, transform=None, filter_empty=True):
+    def __init__(self, img_dir, annotation_file, target_classes, transform=None):
         """
         Args:
-            img_dir (str): Path to the directory containing images.
+            root_dir (str): Path to the directory containing images.
             annotation_file (str): Path to the COCO annotation file (JSON format).
-            target_classes (list): List of target category IDs to be used for training.
             transform (callable, optional): Optional transform to be applied to images.
-            filter_empty (bool): Whether to filter out images that do not contain target classes.
         """
         self.img_dir = img_dir
         self.coco = COCO(annotation_file)
-        self.target_classes = target_classes
+        self.image_ids = list(self.coco.imgs.keys())  # Get all image IDs
         self.transform = transform
-
-        # Load all image IDs
-        all_image_ids = list(self.coco.imgs.keys())
-
-        if filter_empty:
-            # **Filter images that contain at least one target class**
-            self.image_ids = [
-                image_id for image_id in all_image_ids
-                if any(ann['category_id'] in self.target_classes for ann in self.coco.loadAnns(self.coco.getAnnIds(imgIds=image_id)))
-            ]
-            print(f"Filtered dataset: {len(self.image_ids)} images contain target classes.")
-        else:
-            # Use all images (for evaluation)
-            self.image_ids = all_image_ids
-            print(f"Validation dataset: {len(self.image_ids)} images (including empty ones).")
+        self.target_classes = target_classes
 
     def __len__(self):
         return len(self.image_ids)
@@ -59,30 +42,38 @@ class COCODataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        # Load annotations
+        # Load captions
         annotation_ids = self.coco.getAnnIds(imgIds=image_id)
         annotations = self.coco.loadAnns(annotation_ids)
 
-        # Create a vector for object count
         category_counts = np.zeros(len(self.target_classes), dtype=np.float32)
 
         for ann in annotations:
-            if ann['category_id'] in self.target_classes:
+            if ann['category_id'] in self.target_classes: 
                 category_counts[self.target_classes.index(ann['category_id'])] += 1
         
         # Convert to tensor
-        category_counts = torch.tensor(category_counts, dtype=torch.float32)
+        category_counts = torch.tensor(category_counts, dtype=torch.float32) 
 
-        return torch.tensor(image_id), image, category_counts
+        return torch.tensor(image_id) , image, category_counts
 
-
-def get_COCO_dataset(target_classes): 
+def get_COCO_dataset(target_classes, is_train_blurred=False): 
     # trasformer
     transform = transforms.Compose([
         transforms.Resize((224, 224)),  # Resize for ViT
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
+
+    transform_blur = transforms.Compose([
+        transforms.Resize((224, 224)),  # Resize for ViT
+        transforms.GaussianBlur(kernel_size=(15, 15), sigma=(0.1, 2.0)),  # Apply Gaussian blur
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+
+    if is_train_blurred: transform_train = transform_blur
+    else: transform_train = transform
     
     # load train data
     print("Loading Training Data...")
@@ -90,8 +81,7 @@ def get_COCO_dataset(target_classes):
         f'{ROOT_DIR}/data/COCO/images/train2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_train2017.json',
         target_classes,
-        transform,
-        filter_empty=True 
+        transform_train
     )
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
@@ -101,32 +91,70 @@ def get_COCO_dataset(target_classes):
         f'{ROOT_DIR}/data/COCO/images/val2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_val2017.json',
         target_classes,
-        transform,
-        filter_empty=False 
+        transform
     )
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=False)
+
+    val_dataset_blur = COCODataset(
+        f'{ROOT_DIR}/data/COCO/images/val2017',
+        f'{ROOT_DIR}/data/COCO/annotations/instances_val2017.json',
+        target_classes,
+        transform_blur
+    )
+    val_dataloader_blur = DataLoader(val_dataset_blur, batch_size=16, shuffle=False)
 
     # sanity check
     print("train_dataset size:", len(train_dataset))
     print("train_loader size:", len(train_dataloader))
     print("val_dataset size:", len(val_dataset))
     print("val_loader size:", len(val_dataloader))
+    print("val_dataset_blur size:", len(val_dataset_blur))
+    print("val_loader_blur size:", len(val_dataloader_blur))
 
-    return train_dataset,train_dataloader,val_dataset,val_dataloader
+    return train_dataset,train_dataloader,val_dataset,val_dataloader,val_dataset_blur,val_dataloader_blur
  
 class ViTObjectCounter(nn.Module):
-    def __init__(self, model_name="google/vit-base-patch16-224", num_classes=1):
+    def __init__(self):
         super(ViTObjectCounter, self).__init__()
-        self.vit = ViTModel.from_pretrained(model_name)
-        self.regressor = nn.Linear(self.vit.config.hidden_size, num_classes)  # Regression Head
+        self.vit = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k")
+        
+        # Density Map Decoder (Same as Before)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(768, 256, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 1, kernel_size=1)  # Output density map
+        )
 
-    def forward(self, images):
-        outputs = self.vit(images).last_hidden_state[:, 0, :]  # Use CLS token
-        count_pred = self.regressor(outputs)
-        return count_pred
+        # Count Regression Head
+        self.count_regressor = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # Convert [B, 1, H, W] → [B, 1, 1, 1]
+            nn.Flatten(),             # [B, 1, 1, 1] → [B, 1]
+            nn.Linear(1, 1)           # Final count prediction
+        )
+
+    def forward(self, x):
+        features = self.vit(x).last_hidden_state
+        features = features[:, 1:, :]  # Remove class token
+        b, n, d = features.shape
+        h, w = int(n**0.5), int(n**0.5)  # 14x14
+        features = features.permute(0, 2, 1).contiguous().view(b, d, h, w)
+
+        # Get density map
+        density_map = self.decoder(features)
+
+        # Get count prediction from density map
+        count_pred = self.count_regressor(density_map)
+
+        return count_pred  # Return both outputs
 
 
-def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5):
+def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, is_train_blur=False):
     print("Training Model")
     model.train()
     for epoch in range(epochs):
@@ -147,13 +175,22 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5):
         duration = end_time - start_time
         print(f"Epoch [{cur_epoch+epoch+1}/{epochs+cur_epoch}], Loss: {avg_loss:.4f}, Time: {duration} secs")
         
-        torch.save({
-            'epoch': cur_epoch+epoch+1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': avg_loss,
-        }, f"vit_targeted_checkpoint_{cur_epoch+epoch+1}.pth")
-        print(f"Checkpoint {cur_epoch+epoch+1} saved!")
+        if is_train_blur: 
+            torch.save({
+                'epoch': cur_epoch+epoch+1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': avg_loss,
+            }, f"vit_image_blur_checkpoint_{cur_epoch+epoch+1}.pth")
+            print(f"Checkpoint {cur_epoch+epoch+1} saved!")
+        else: 
+            torch.save({
+                'epoch': cur_epoch+epoch+1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': avg_loss,
+            }, f"vit_checkpoint_{cur_epoch+epoch+1}.pth")
+            print(f"Checkpoint {cur_epoch+epoch+1} saved!")
 
 
 def evaluate(model, dataloader, device):
@@ -184,9 +221,24 @@ def evaluate(model, dataloader, device):
 
     return results
 
+def save_results(results, is_train_blur=False, is_test_blur = False, epoch = None): 
+    file_name = "ViT" 
+    if is_train_blur: file_name += "_image_blur"
+    if epoch: file_name += f"_{epoch}"
+    file_name += "_results"
+    if is_test_blur: file_name+= "_on_blurred_images"
+
+    # Save results to JSON file
+    with open(f'{ROOT_DIR}/results/{file_name}.json', "w") as f:
+        json.dump(results, f, indent=4)
+
+    print(f"Saved results to {file_name}.json")
+
+
 # Main function: 
 target_classes = [1]
-train_dataset,train_dataloader,val_dataset,val_dataloader = get_COCO_dataset(target_classes)
+is_train_blur = False # determine if model should be trained with blurred images 
+train_dataset,train_dataloader,val_dataset,val_dataloader,val_dataset_blur,val_dataloader_blur = get_COCO_dataset(target_classes,is_train_blur)
 
 model = ViTObjectCounter().to(DEVICE)
 
@@ -194,23 +246,25 @@ model = ViTObjectCounter().to(DEVICE)
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
+
 # # Load checkpoint
-# checkpoint = torch.load('vit_targeted_checkpoint_10.pth')
+# checkpoint = torch.load('vit_checkpoint_5.pth')
 # model.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 
-# Train the model
-train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=0, epochs=10)
 
-# Evaluate Model
+for i in range(5):
 
-results = evaluate(model, val_dataloader, DEVICE)
+   # Train the model
+    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=i, epochs=1,is_train_blur=is_train_blur)
 
-# Save results to JSON file
-with open(f'{ROOT_DIR}/results/ViT_targeted_results.json', "w") as f:
-    json.dump(results, f, indent=4)
+    # Evaluate Model
+    results = evaluate(model, val_dataloader, DEVICE)
+    save_results(results, is_train_blur, False, epoch=(i+1))
     
+    results = evaluate(model, val_dataloader_blur, DEVICE)
+    save_results(results, is_train_blur, True, epoch=(i+1))
 
-
+   
 

@@ -8,7 +8,6 @@ import os
 import json
 from PIL import Image
 import numpy as np
-from tqdm import tqdm
 import time
 
 # project root dir
@@ -58,13 +57,23 @@ class COCODataset(Dataset):
 
         return torch.tensor(image_id) , image, category_counts
 
-def get_COCO_dataset(target_classes): 
+def get_COCO_dataset(target_classes, is_train_blurred=False): 
     # trasformer
     transform = transforms.Compose([
         transforms.Resize((224, 224)),  # Resize for ViT
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
+
+    transform_blur = transforms.Compose([
+        transforms.Resize((224, 224)),  # Resize for ViT
+        transforms.GaussianBlur(kernel_size=(15, 15), sigma=(0.1, 2.0)),  # Apply Gaussian blur
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+
+    if is_train_blurred: transform_train = transform_blur
+    else: transform_train = transform
     
     # load train data
     print("Loading Training Data...")
@@ -72,7 +81,7 @@ def get_COCO_dataset(target_classes):
         f'{ROOT_DIR}/data/COCO/images/train2017',
         f'{ROOT_DIR}/data/COCO/annotations/instances_train2017.json',
         target_classes,
-        transform
+        transform_train
     )
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
@@ -86,13 +95,23 @@ def get_COCO_dataset(target_classes):
     )
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=False)
 
+    val_dataset_blur = COCODataset(
+        f'{ROOT_DIR}/data/COCO/images/val2017',
+        f'{ROOT_DIR}/data/COCO/annotations/instances_val2017.json',
+        target_classes,
+        transform_blur
+    )
+    val_dataloader_blur = DataLoader(val_dataset_blur, batch_size=16, shuffle=False)
+
     # sanity check
     print("train_dataset size:", len(train_dataset))
     print("train_loader size:", len(train_dataloader))
     print("val_dataset size:", len(val_dataset))
     print("val_loader size:", len(val_dataloader))
+    print("val_dataset_blur size:", len(val_dataset_blur))
+    print("val_loader_blur size:", len(val_dataloader_blur))
 
-    return train_dataset,train_dataloader,val_dataset,val_dataloader
+    return train_dataset,train_dataloader,val_dataset,val_dataloader,val_dataset_blur,val_dataloader_blur
  
 class ViTObjectCounter(nn.Module):
     def __init__(self, model_name="google/vit-base-patch16-224", num_classes=1):
@@ -106,7 +125,7 @@ class ViTObjectCounter(nn.Module):
         return count_pred
 
 
-def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5):
+def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, is_train_blur=False):
     print("Training Model")
     model.train()
     for epoch in range(epochs):
@@ -127,13 +146,22 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5):
         duration = end_time - start_time
         print(f"Epoch [{cur_epoch+epoch+1}/{epochs+cur_epoch}], Loss: {avg_loss:.4f}, Time: {duration} secs")
         
-        torch.save({
-            'epoch': cur_epoch+epoch+1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': avg_loss,
-        }, f"vit_checkpoint_{cur_epoch+epoch+1}.pth")
-        print(f"Checkpoint {cur_epoch+epoch+1} saved!")
+        if is_train_blur: 
+            torch.save({
+                'epoch': cur_epoch+epoch+1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': avg_loss,
+            }, f"vit_image_blur_checkpoint_{cur_epoch+epoch+1}.pth")
+            print(f"Checkpoint {cur_epoch+epoch+1} saved!")
+        else: 
+            torch.save({
+                'epoch': cur_epoch+epoch+1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': avg_loss,
+            }, f"vit_checkpoint_{cur_epoch+epoch+1}.pth")
+            print(f"Checkpoint {cur_epoch+epoch+1} saved!")
 
 
 def evaluate(model, dataloader, device):
@@ -164,9 +192,24 @@ def evaluate(model, dataloader, device):
 
     return results
 
+def save_results(results, is_train_blur=False, is_test_blur = False, epoch = None): 
+    file_name = "ViT" 
+    if is_train_blur: file_name += "_image_blur"
+    if epoch: file_name += f"_{epoch}"
+    file_name += "_results"
+    if is_test_blur: file_name+= "_on_blurred_images"
+
+    # Save results to JSON file
+    with open(f'{ROOT_DIR}/results/{file_name}.json', "w") as f:
+        json.dump(results, f, indent=4)
+
+    print(f"Saved results to {file_name}.json")
+
+
 # Main function: 
 target_classes = [1]
-train_dataset,train_dataloader,val_dataset,val_dataloader = get_COCO_dataset(target_classes)
+is_train_blur = False # determine if model should be trained with blurred images 
+train_dataset,train_dataloader,val_dataset,val_dataloader,val_dataset_blur,val_dataloader_blur = get_COCO_dataset(target_classes,is_train_blur)
 
 model = ViTObjectCounter().to(DEVICE)
 
@@ -174,8 +217,6 @@ model = ViTObjectCounter().to(DEVICE)
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
-# Train the model
-train(model, train_dataloader, optimizer, loss_fn, DEVICE, epochs=5)
 
 # # Load checkpoint
 # checkpoint = torch.load('vit_checkpoint_5.pth')
@@ -184,9 +225,17 @@ train(model, train_dataloader, optimizer, loss_fn, DEVICE, epochs=5)
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 
 
-results = evaluate(model, val_dataloader, DEVICE)
+for i in range(5):
 
-# Save results to JSON file
-with open(f'{ROOT_DIR}/results/ViT_results.json', "w") as f:
-    json.dump(results, f, indent=4)
+   # Train the model
+    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=i, epochs=1,is_train_blur=is_train_blur)
+
+    # Evaluate Model
+    results = evaluate(model, val_dataloader, DEVICE)
+    save_results(results, is_train_blur, False, epoch=(i+1))
+    
+    results = evaluate(model, val_dataloader_blur, DEVICE)
+    save_results(results, is_train_blur, True, epoch=(i+1))
+
+   
 

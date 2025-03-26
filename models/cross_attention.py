@@ -124,32 +124,23 @@ def get_COCO_dataset(target_classes, is_train_blurred=False):
 
 
 # Model Definition
-class SelfAttention(nn.Module):
-    def __init__(self, feature_dim):
-        super(SelfAttention, self).__init__()
-        self.query_proj = nn.Linear(feature_dim, feature_dim)
-        self.key_proj = nn.Linear(feature_dim, feature_dim)
-        self.value_proj = nn.Linear(feature_dim, feature_dim)
-        self.softmax = nn.Softmax(dim=-1)
+class CrossAttention(nn.Module):
+    def __init__(self, feature_dim, num_heads=8):
+        super(CrossAttention, self).__init__()
+        self.cross_attention = nn.MultiheadAttention(embed_dim=feature_dim, num_heads=num_heads, batch_first=True)
 
     def forward(self, exemplar_features, image_features):
         """
         Args:
-            exemplar_features: Tensor of shape [batch_size, feature_dim] (exemplar extracted from bounding box).
-            image_features: Tensor of shape [batch_size, num_patches, feature_dim] (global features).
+            exemplar_features: [B, 1, D] - Query (Exemplar Features)
+            image_features: [B, N, D] - Key & Value (Image Features)
 
         Returns:
-            Attended feature representation.
+            Attended Features [B, 1, D] -> Squeezed to [B, D]
         """
-        query = self.query_proj(exemplar_features).unsqueeze(1)  # [B, 1, D]
-        key = self.key_proj(image_features)  # [B, N, D]
-        value = self.value_proj(image_features)  # [B, N, D]
+        attended_features, _ = self.cross_attention(query=exemplar_features, key=image_features, value=image_features)
+        return attended_features.squeeze(1)  # Remove sequence dimension
 
-        attention_scores = torch.bmm(query, key.transpose(1, 2)) / (key.size(-1) ** 0.5)  # [B, 1, N]
-        attention_weights = self.softmax(attention_scores)  # [B, 1, N]
-
-        attended_features = torch.bmm(attention_weights, value)  # [B, 1, D]
-        return attended_features.squeeze(1)  # [B, D]
 
 class ExemplarObjectCounter(nn.Module):
     def __init__(self, feature_dim=2048, num_classes=1):
@@ -162,7 +153,8 @@ class ExemplarObjectCounter(nn.Module):
         self.exemplar_extractor = nn.Sequential(*list(self.exemplar_extractor.children())[:-1])  
         self.exemplar_fc = nn.Linear(512, feature_dim)  
 
-        self.attention = SelfAttention(feature_dim)
+        self.cross_attention = CrossAttention(feature_dim, num_heads=8)  # Use Cross Attention
+
         self.regressor = nn.Linear(feature_dim, num_classes)
 
     def forward(self, images, exemplars):
@@ -180,18 +172,20 @@ class ExemplarObjectCounter(nn.Module):
 
         # Extract exemplar features
         exemplar_features = self.exemplar_extractor(exemplars).view(B, -1)  # [B, 512]
-        exemplar_features = self.exemplar_fc(exemplar_features)  # [B, 2048]
+        exemplar_features = self.exemplar_fc(exemplar_features).unsqueeze(1)  # [B, 1, 2048]
 
-        attended_features = self.attention(exemplar_features, features)  # [B, C]
+        attended_features = self.cross_attention(exemplar_features, features)  # [B, 2048]
         count_pred = self.regressor(attended_features)  # [B, 1]
         return count_pred
+
 
 # Training
 def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, is_train_blur=False):
     model.train()
     for epoch in range(epochs):
         total_loss = 0
-        for image_ids, images, exemplars, counts in dataloader:
+        for image_ids, images, exemplars, counts in  tqdm(dataloader, desc=f'Epoch {cur_epoch+epoch+1} Training model', unit="batch"):
+        # for image_ids, images, exemplars, counts in dataloader:
             images, exemplars, counts = images.to(device), exemplars.to(device), counts.to(device)
 
             optimizer.zero_grad()
@@ -210,7 +204,7 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, 
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
-            }, f"self_attention_image_blur_checkpoint_{cur_epoch+epoch+1}.pth")
+            }, f"cross_attention_image_blur_checkpoint_{cur_epoch+epoch+1}.pth")
             print(f"Checkpoint {cur_epoch+epoch+1} saved!")
         else: 
             torch.save({
@@ -218,7 +212,7 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, 
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
-            }, f"self_attention_checkpoint_{cur_epoch+epoch+1}.pth")
+            }, f"cross_attention_checkpoint_{cur_epoch+epoch+1}.pth")
             print(f"Checkpoint {cur_epoch+epoch+1} saved!")
 
 def evaluate(model, dataloader, device):
@@ -250,7 +244,7 @@ def evaluate(model, dataloader, device):
     return results
 
 def save_results(results, is_train_blur=False, is_test_blur = False, epoch = None): 
-    file_name = "self_attention" 
+    file_name = "cross_attention" 
     if is_train_blur: file_name += "_image_blur"
     if epoch: file_name += f"_{epoch}"
     file_name += "_results"
@@ -275,21 +269,22 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 
 # # Load Checkpoint
-# checkpoint = torch.load(f'self_attention_checkpoint_8.pth')
+# checkpoint = torch.load(f'cross_attention_checkpoint_8.pth')
 # model.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
+cur_epoch = 0
 
 for i in range(6):
 
     # Train model
-    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=i, epochs=1,is_train_blur = is_train_blur)
+    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=(cur_epoch+i), epochs=1,is_train_blur = is_train_blur)
 
     # Evaluate Model
     results = evaluate(model, val_dataloader, DEVICE)
-    save_results(results, is_train_blur, False, epoch=(i+1))
+    save_results(results, is_train_blur, False, epoch=(cur_epoch+i+1))
     
     results = evaluate(model, val_dataloader_blur, DEVICE)
-    save_results(results, is_train_blur, True, epoch=(i+1))
+    save_results(results, is_train_blur, True, epoch=(cur_epoch+i+1))
 
 
