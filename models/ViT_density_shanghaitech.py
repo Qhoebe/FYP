@@ -1,3 +1,5 @@
+### Note: INCOMPLETE
+
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -225,7 +227,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 cur_epoch = 0
 
-for i in range(1):
+for i in range(5):
 
     # Train the model
     train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=(cur_epoch+i), epochs=1)

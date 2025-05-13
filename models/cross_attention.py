@@ -184,8 +184,8 @@ def train(model, dataloader, optimizer, loss_fn, device, cur_epoch=0, epochs=5, 
     model.train()
     for epoch in range(epochs):
         total_loss = 0
-        for image_ids, images, exemplars, counts in  tqdm(dataloader, desc=f'Epoch {cur_epoch+epoch+1} Training model', unit="batch"):
-        # for image_ids, images, exemplars, counts in dataloader:
+        # for image_ids, images, exemplars, counts in  tqdm(dataloader, desc=f'Epoch {cur_epoch+epoch+1} Training model', unit="batch"):
+        for image_ids, images, exemplars, counts in dataloader:
             images, exemplars, counts = images.to(device), exemplars.to(device), counts.to(device)
 
             optimizer.zero_grad()
@@ -259,7 +259,7 @@ def save_results(results, is_train_blur=False, is_test_blur = False, epoch = Non
 
 # Initialize and train
 target_classes = [1]
-is_train_blur = False 
+is_train_blur = True 
 train_dataset,train_dataloader,val_dataset,val_dataloader,val_dataset_blur,val_dataloader_blur = get_COCO_dataset(target_classes,is_train_blur)
 
 model = ExemplarObjectCounter().to(DEVICE)
@@ -269,13 +269,13 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 
 # # Load Checkpoint
-# checkpoint = torch.load(f'cross_attention_checkpoint_8.pth')
+# checkpoint = torch.load(f'cross_attention_image_blur_checkpoint_8.pth')
 # model.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 cur_epoch = 0
 
-for i in range(6):
+for i in range(10):
 
     # Train model
     train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=(cur_epoch+i), epochs=1,is_train_blur = is_train_blur)

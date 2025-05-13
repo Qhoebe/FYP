@@ -252,19 +252,19 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 # model.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
-
+cur_epoch = 0
 
 for i in range(5):
 
    # Train the model
-    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=i, epochs=1,is_train_blur=is_train_blur)
+    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=(cur_epoch+i), epochs=1,is_train_blur=is_train_blur)
 
     # Evaluate Model
     results = evaluate(model, val_dataloader, DEVICE)
-    save_results(results, is_train_blur, False, epoch=(i+1))
+    save_results(results, is_train_blur, False, epoch=(cur_epoch+i+1))
     
     results = evaluate(model, val_dataloader_blur, DEVICE)
-    save_results(results, is_train_blur, True, epoch=(i+1))
+    save_results(results, is_train_blur, True, epoch=(cur_epoch+i+1))
 
    
 

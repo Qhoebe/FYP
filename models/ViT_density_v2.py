@@ -10,7 +10,7 @@ from PIL import Image
 import numpy as np
 import time
 import cv2
-#from tqdm import tqdm
+from tqdm import tqdm
 
 # project root dir
 ROOT_DIR = os.path.abspath(os.curdir)
@@ -217,8 +217,8 @@ def train(model, dataloader, optimizer, loss_fn_density, loss_fn_count, device, 
     for epoch in range(epochs):
         start_time = time.time()
         total_loss = 0
-        # for image_ids, images, density_maps, counts in tqdm(dataloader, desc=f'Epoch {cur_epoch+epoch+1}', unit="batch"):
-        for image_ids, images, density_maps, counts in dataloader:
+        for image_ids, images, density_maps, counts in tqdm(dataloader, desc=f'Epoch {cur_epoch+epoch+1}', unit="batch"):
+        # for image_ids, images, density_maps, counts in dataloader:
             images, density_maps, counts = images.to(device), density_maps.to(device), counts.to(device)
 
             optimizer.zero_grad()
@@ -305,7 +305,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
 cur_epoch = 0
 
-for i in range(8):
+for i in range(5):
 
     # Train the model
     train(model, train_dataloader, optimizer, loss_fn_density,loss_fn_count, DEVICE,cur_epoch=(cur_epoch+i), epochs=1)

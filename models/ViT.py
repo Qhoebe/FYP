@@ -8,6 +8,7 @@ import os
 import json
 from PIL import Image
 import numpy as np
+from tqdm import tqdm
 import time
 
 # project root dir
@@ -208,7 +209,7 @@ def save_results(results, is_train_blur=False, is_test_blur = False, epoch = Non
 
 # Main function: 
 target_classes = [1]
-is_train_blur = False # determine if model should be trained with blurred images 
+is_train_blur = True  # determine if model should be trained with blurred images 
 train_dataset,train_dataloader,val_dataset,val_dataloader,val_dataset_blur,val_dataloader_blur = get_COCO_dataset(target_classes,is_train_blur)
 
 model = ViTObjectCounter().to(DEVICE)
@@ -218,24 +219,24 @@ loss_fn = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 
-# # Load checkpoint
-# checkpoint = torch.load('vit_checkpoint_5.pth')
+# Load checkpoint
+# checkpoint = torch.load('vit_image_blur_checkpoint_10.pth')
 # model.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 # cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
+cur_epoch = 0 
 
-
-for i in range(5):
+for i in range(3):
 
    # Train the model
-    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=i, epochs=1,is_train_blur=is_train_blur)
+    train(model, train_dataloader, optimizer, loss_fn, DEVICE,cur_epoch=(cur_epoch+i), epochs=1,is_train_blur=is_train_blur)
 
     # Evaluate Model
     results = evaluate(model, val_dataloader, DEVICE)
-    save_results(results, is_train_blur, False, epoch=(i+1))
+    save_results(results, is_train_blur, False, epoch=(cur_epoch+i+1))
     
     results = evaluate(model, val_dataloader_blur, DEVICE)
-    save_results(results, is_train_blur, True, epoch=(i+1))
+    save_results(results, is_train_blur, True, epoch=(cur_epoch+i+1))
 
    
 

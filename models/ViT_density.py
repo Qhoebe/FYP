@@ -299,13 +299,13 @@ loss_fn_count = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
 # # Load checkpoint
-checkpoint = torch.load('vit_density_checkpoint_8.pth')
-model.load_state_dict(checkpoint['model_state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
-# cur_epoch = 0
+#checkpoint = torch.load('vit_density_checkpoint_8.pth')
+#model.load_state_dict(checkpoint['model_state_dict'])
+#optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#cur_epoch = checkpoint['epoch']  # Resume from the correct epoch
+cur_epoch = 0
 
-for i in range(8):
+for i in range(6):
 
     # Train the model
     train(model, train_dataloader, optimizer, loss_fn_density,loss_fn_count, DEVICE,cur_epoch=(cur_epoch+i), epochs=1)
