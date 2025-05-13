@@ -1,4 +1,4 @@
 /data
 /model_weights
-/results
+/results/*.json
 /jobscript
